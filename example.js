@@ -8,6 +8,7 @@ aqara.on('gateway', (gateway) => {
     gateway.setPassword('sotxcen2i4otuj7z')
     gateway.setColor({ r: 255, g: 0, b: 0 })
     gateway.setIntensity(100)
+    gateway.setSound(11,50) // 11 : Knock at the door | 50 : volume (0-100)
   })
 
   gateway.on('offline', () => {
@@ -28,6 +29,12 @@ aqara.on('gateway', (gateway) => {
         })
         device.on('close', () => {
           console.log(`${device.getSid()} is now close`)
+        })
+        device.on('offline', () => {
+          console.log(`${device.getSid()} is offline`)
+        })
+        device.on('online', () => {
+          console.log(`${device.getSid()} is online`)
         })
         break
       case 'switch':
@@ -72,6 +79,27 @@ aqara.on('gateway', (gateway) => {
           console.log(`${device.getSid()} ${device.getStatus()}${device.getRotateDegrees() !== null ? ' ' + device.getRotateDegrees() : ''}`)
         })
         break
+      case 'smoke':
+        console.log(`  Smoke`)
+        device.on('update', () => {
+          console.log(`${device.getSid()} (${device.hasAlarm() ? 'SMOKE DETECTED' : 'no smoke detected'} density: ${device.getDensity()})`)
+        })
+        break
+      case 'vibration':
+        console.log(`  Vibration`)
+        device.on('update', () => {
+          console.log(`${device.getSid()} (coordination: ${device.getCoordination()} bed_activity: ${device.getBedActivity()})`)
+        })
+        device.on('vibrate', () => {
+          console.log(`${device.getSid()} has vibration`)
+        })
+        device.on('freeFall', () => {
+          console.log(`${device.getSid()} has freeFall`)
+        })
+        device.on('tilt', () => {
+          console.log(`${device.getSid()} (tilt: ${device.getFinalTiltAngel()}°)`)
+        })
+        break;
     }
   })
 

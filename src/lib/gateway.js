@@ -8,6 +8,8 @@ const Motion = require('./motion')
 const Sensor = require('./sensor')
 const Leak = require('./leak')
 const Cube = require('./cube')
+const Smoke = require('./smoke')
+const Vibration = require('./vibration')
 
 class Gateway extends events.EventEmitter {
   constructor (opts) {
@@ -21,6 +23,9 @@ class Gateway extends events.EventEmitter {
     this._rearmWatchdog()
 
     this._color = { r: 0, g: 0, b: 0 }
+
+    this._sound = 10000
+    this._volume = 0
 
     this._subdevices = new Map()
 
@@ -36,9 +41,10 @@ class Gateway extends events.EventEmitter {
   }
 
   _handleMessage (msg) {
+    let handled
     let sid
     let type
-    let state
+    let state = msg.data ? JSON.parse(msg.data) : null
     switch (msg.cmd) {
       case 'get_id_list_ack':
         this._refreshKey(msg.token)
@@ -46,7 +52,7 @@ class Gateway extends events.EventEmitter {
         const payload = `{"cmd": "read", "sid": "${this._sid}"}`
         this._sendUnicast(payload)
         // read subdevices
-        for (const sid of JSON.parse(msg.data)) {
+        for (const sid of state) {
           const payload = `{"cmd": "read", "sid": "${sid}"}`
           this._sendUnicast(payload)
         }
@@ -54,11 +60,10 @@ class Gateway extends events.EventEmitter {
       case 'read_ack':
         sid = msg.sid
         type = msg.model
-        state = JSON.parse(msg.data)
 
         if (sid === this._sid) { // self
           this._handleState(state)
-
+          handled = true
           this._ready = true
           this.emit('ready')
         } else {
@@ -84,7 +89,14 @@ class Gateway extends events.EventEmitter {
               subdevice = new Leak({ sid })
               break
             case 'cube':
+            case 'sensor_cube.aqgl01':
               subdevice = new Cube({ sid })
+              break
+            case 'smoke':
+              subdevice = new Smoke({ sid })
+              break
+            case 'vibration':
+              subdevice = new Vibration({ sid })
               break
             default:
               return false
@@ -92,8 +104,10 @@ class Gateway extends events.EventEmitter {
 
           if (subdevice) {
             this._subdevices.set(msg.sid, subdevice)
+            state.cached = true
             subdevice._handleState(state)
             this.emit('subdevice', subdevice)
+            handled = true
           }
         }
         break
@@ -101,23 +115,38 @@ class Gateway extends events.EventEmitter {
         if (msg.sid === this._sid) {
           this._refreshKey(msg.token)
           this._rearmWatchdog()
-        }
-        break
-      case 'report':
-        state = JSON.parse(msg.data)
-        if (msg.sid === this._sid) { this._handleState(state) }// self
-        else {
+          handled = true
+        } else {
           const subdevice = this._subdevices.get(msg.sid)
           if (subdevice) {
-            subdevice._handleState(state)
+            subdevice._heartbeat(state)
+            handled = true
           } else {
-            // console.log('did not manage to find device, or device not yet supported')
+            //console.log('did not manage to find device, or device not yet supported')
           }
         }
         break
+      case 'report':
+
+        if (msg.sid === this._sid) {
+          this._handleState(state)
+          handled = true
+        } else {
+          const subdevice = this._subdevices.get(msg.sid)
+          if (subdevice) {
+            state.cached = false
+            subdevice._handleState(state)
+            handled = true
+          } else {
+            //console.log('did not manage to find device, or device not yet supported')
+          }
+        }
+        break
+      default:
+        //console.log('unknown cmd', msg)
     }
 
-    return true
+    return handled
   }
 
   _handleState (state) {
@@ -153,6 +182,12 @@ class Gateway extends events.EventEmitter {
     this._sendUnicast(payload)
   }
 
+  _writeSound () {
+
+    const payload = `{"cmd": "write", "model": "gateway", "sid": "${this._sid}", "short_id": 0, "data": "{\\"mid\\":${this._sound}, \\"vol\\":${this._volume}, \\"key\\": \\"${this._key}\\"}"}`
+    this._sendUnicast(payload)
+  }
+
   get ip () { return this._ip }
   get sid () { return this._sid }
   get ready () { return this._ready }
@@ -169,6 +204,16 @@ class Gateway extends events.EventEmitter {
 
     this._color = color
     this._writeColor()
+  }
+
+  get sound () { return this._sound }
+  get volume () { return this._volume }
+  setSound (sound, volume) {
+    if (!this._ready) return
+
+    this._sound = sound
+    this._volume = volume
+    this._writeSound()
   }
 
   get intensity () { return this._intensity }
